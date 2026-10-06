@@ -1,12 +1,16 @@
+import redis
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
+from api.middleware.rate_limiter import RateLimiterMiddleware
 from api.middleware.request_id import RequestIDMiddleware
 from api.routes import auth, health, profiles, reviews
+from core.config import settings
 from core.database import init_db
+from safety.rate_limiter import RateLimiter
 
 log = structlog.get_logger()
 
@@ -51,6 +55,9 @@ app.add_middleware(
 # Add request ID middleware
 app.add_middleware(RequestIDMiddleware)
 
+# Add rate limiter middleware
+app.add_middleware(RateLimiterMiddleware)
+
 
 # Exception handler for unhandled exceptions
 @app.exception_handler(Exception)
@@ -83,9 +90,27 @@ app.include_router(health.router)
 # Startup event
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup."""
+    """Initialize database and rate limiter on startup."""
     try:
         await init_db()
+
+        # Initialize Redis client and rate limiter
+        try:
+            redis_client = redis.from_url(
+                settings.redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+            )
+            redis_client.ping()
+            app.state.redis_client = redis_client
+            app.state.rate_limiter = RateLimiter(redis_client)
+            app.state.rate_limit_per_minute = settings.rate_limit_per_minute
+            log.info("rate_limiter_initialized")
+        except Exception as exc:
+            log.error("rate_limiter_initialization_failed", error=str(exc))
+            # Don't fail startup if rate limiter can't be initialized
+            app.state.rate_limiter = None
+
         log.info("application_startup_completed")
     except Exception as exc:
         log.error("application_startup_failed", error=str(exc))
