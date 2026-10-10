@@ -43,6 +43,10 @@ def custom_openapi():
 app.openapi = custom_openapi
 
 
+# Add rate limiter middleware. It is added before CORS so CORS wraps it and
+# 429 responses still carry CORS headers.
+app.add_middleware(RateLimiterMiddleware)
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -50,13 +54,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining"],
 )
 
 # Add request ID middleware
 app.add_middleware(RequestIDMiddleware)
-
-# Add rate limiter middleware
-app.add_middleware(RateLimiterMiddleware)
 
 
 # Exception handler for unhandled exceptions

@@ -106,3 +106,43 @@ class TestRateLimiterMiddleware:
 
         identifier = limiter.check_rate_limit.call_args.args[0]
         assert identifier == "203.0.113.7"
+
+
+@pytest.mark.unit
+class TestRateLimiterWithCORS:
+    """Rate limit responses must work with the real app's CORS setup."""
+
+    ORIGIN = "http://localhost:5173"
+
+    @pytest.fixture
+    def real_app(self, monkeypatch):
+        from api.main import app
+
+        limiter = Mock()
+        monkeypatch.setattr(app.state, "rate_limiter", limiter, raising=False)
+        monkeypatch.setattr(app.state, "rate_limit_per_minute", 60, raising=False)
+        return app, limiter
+
+    def test_429_response_carries_cors_headers(self, real_app):
+        app, limiter = real_app
+        limiter.check_rate_limit.return_value = (False, 0)
+        client = TestClient(app)
+
+        response = client.get("/", headers={"Origin": self.ORIGIN})
+
+        assert response.status_code == 429
+        assert response.headers["access-control-allow-origin"] == self.ORIGIN
+        assert response.headers["X-RateLimit-Remaining"] == "0"
+
+    def test_allowed_response_exposes_rate_limit_headers(self, real_app):
+        app, limiter = real_app
+        limiter.check_rate_limit.return_value = (True, 59)
+        client = TestClient(app)
+
+        response = client.get("/", headers={"Origin": self.ORIGIN})
+
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == self.ORIGIN
+        exposed = response.headers["access-control-expose-headers"]
+        assert "X-RateLimit-Limit" in exposed
+        assert "X-RateLimit-Remaining" in exposed
