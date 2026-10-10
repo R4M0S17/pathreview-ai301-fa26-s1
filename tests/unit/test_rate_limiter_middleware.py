@@ -80,8 +80,9 @@ class TestRateLimiterMiddleware:
         assert "X-RateLimit-Remaining" not in response.headers
 
     def test_null_limiter_from_failed_startup_skips_rate_limiting(self):
-        # Startup sets rate_limiter to None when Redis is unreachable; the
-        # limit setting is then never stored, so the middleware must skip.
+        # Startup sets rate_limiter to None when Redis is unreachable. The
+        # middleware must skip rate limiting explicitly, without relying on the
+        # missing limit setting.
         app = FastAPI()
         app.add_middleware(RateLimiterMiddleware)
 
