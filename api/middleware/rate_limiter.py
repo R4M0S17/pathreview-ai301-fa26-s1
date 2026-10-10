@@ -1,5 +1,6 @@
 import structlog
 from fastapi import Request
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
 
@@ -29,10 +30,14 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             return response
 
-        # Check rate limit
+        # Check rate limit. The Redis client is synchronous, so run the check in a
+        # worker thread to avoid blocking the event loop on every request.
         try:
-            allowed, remaining = rate_limiter.check_rate_limit(
-                client_ip, limit=limit, window_seconds=window_seconds
+            allowed, remaining = await run_in_threadpool(
+                rate_limiter.check_rate_limit,
+                client_ip,
+                limit=limit,
+                window_seconds=window_seconds,
             )
         except Exception as e:
             log.error("rate_limiter_check_failed", error=str(e))
