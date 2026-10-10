@@ -30,6 +30,12 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             return response
 
+        # Startup sets the limiter to None when Redis is unreachable. Fail open
+        # explicitly instead of relying on the missing limit setting above.
+        if rate_limiter is None:
+            log.warning("rate_limiter_not_initialized")
+            return await call_next(request)
+
         # Check rate limit. The Redis client is synchronous, so run the check in a
         # worker thread to avoid blocking the event loop on every request.
         try:
